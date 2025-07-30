@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import io
+import itertools
 from datetime import datetime
 
 st.set_page_config(page_title="Lineup Review App", layout="wide")
@@ -21,7 +22,7 @@ if scorecard_file and lineup_files:
     # Define equal-width salary buckets with dynamic labels
     min_sal = scorecard['Salary'].min()
     max_sal = scorecard['Salary'].max()
-    bins = np.linspace(min_sal, max_sal, 5)  # 4 equal intervals
+    bins = np.linspace(min_sal, max_sal, 5)
     range_labels = [f"${int(bins[i])}-${int(bins[i+1])}" for i in range(len(bins)-1)]
     scorecard['Tier'] = pd.cut(scorecard['Salary'], bins=bins, labels=range_labels, include_lowest=True)
 
@@ -42,20 +43,16 @@ if scorecard_file and lineup_files:
     exposures = exp_counts / total_lineups
     exposures_df = exposures.to_frame(name='Average Exposure')
 
-    # Merge exposures with scorecard metrics for comparison
+    # Merge exposures with scorecard metrics
     exposures_merged = exposures_df.reset_index().rename(columns={'index':'Name'})
     exposures_merged = exposures_merged.merge(
-        scorecard[['Name','Projected_Ownership%','GTO_Ownership%']],
-        on='Name', how='left'
+        scorecard[['Name','Projected_Ownership%','GTO_Ownership%']], on='Name', how='left'
     )
     exposures_merged['Average Exposure %'] = exposures_merged['Average Exposure'] * 100
-    exposures_merged.rename(
-        columns={
-            'Projected_Ownership%':'Projected Ownership %',
-            'GTO_Ownership%':'GTO Ownership %'
-        },
-        inplace=True
-    )
+    exposures_merged.rename(columns={
+        'Projected_Ownership%':'Projected Ownership %',
+        'GTO_Ownership%':'GTO Ownership %'
+    }, inplace=True)
     display_exposure = exposures_merged[
         ['Name','Average Exposure %','Projected Ownership %','GTO Ownership %']
     ].set_index('Name')
@@ -76,6 +73,22 @@ if scorecard_file and lineup_files:
 
     st.subheader("Lineup Overlap Matrix")
     st.dataframe(overlap)
+
+    # High-Bias Pair Checker
+    low_own_players = scorecard[scorecard['GTO_Ownership%'] <= 2.75]['Name'].tolist()
+    pair_summary = []
+    for name, df in builds.items():
+        pairs = set()
+        for lineup in df.itertuples(index=False, name=None):
+            lows = [p for p in lineup if p in low_own_players]
+            for pair in itertools.combinations(sorted(lows), 2):
+                pairs.add(pair)
+        pair_summary.append({'Build': name, 'High-Bias Pair Count': len(pairs)})
+    hb_df = pd.DataFrame(pair_summary).set_index('Build')
+    hb_df['Within Limit'] = hb_df['High-Bias Pair Count'] <= 15
+
+    st.subheader("High-Bias Pair Summary (GTO ≤2.75%)")
+    st.dataframe(hb_df)
 
     # Salary tier breakdown
     tier_map = scorecard.set_index('Name')['Tier'].to_dict()
@@ -113,11 +126,12 @@ if scorecard_file and lineup_files:
     plt.colorbar(im, ax=ax)
     st.pyplot(fig)
 
-    # Prepare download report
+    # Downloadable report
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
         display_exposure.to_excel(writer, sheet_name='Exposure_vs_Targets')
         overlap.to_excel(writer, sheet_name='Overlap')
+        hb_df.to_excel(writer, sheet_name='HighBiasPairs')
         comp_dist.to_excel(writer, sheet_name='TierDist')
         avg_tiers.to_excel(writer, sheet_name='AvgTiers')
         co_mat.to_excel(writer, sheet_name='Cooccurrence')
