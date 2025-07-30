@@ -42,6 +42,28 @@ if scorecard_file and lineup_files:
     exposures = exp_counts / total_lineups
     exposures_df = exposures.to_frame(name='Average Exposure')
 
+    # Merge exposures with scorecard metrics for comparison
+    exposures_merged = exposures_df.reset_index().rename(columns={'index':'Name'})
+    exposures_merged = exposures_merged.merge(
+        scorecard[['Name','Projected_Ownership%','GTO_Ownership%']],
+        on='Name', how='left'
+    )
+    exposures_merged['Average Exposure %'] = exposures_merged['Average Exposure'] * 100
+    exposures_merged.rename(
+        columns={
+            'Projected_Ownership%':'Projected Ownership %',
+            'GTO_Ownership%':'GTO Ownership %'
+        },
+        inplace=True
+    )
+    display_exposure = exposures_merged[
+        ['Name','Average Exposure %','Projected Ownership %','GTO Ownership %']
+    ].set_index('Name')
+
+    # Display merged exposure table
+    st.subheader("Player Exposure vs. Targets")
+    st.dataframe(display_exposure)
+
     # Overlap matrix
     lineup_sets = {
         name: {tuple(sorted(l)) for l in df.itertuples(index=False, name=None)}
@@ -51,6 +73,9 @@ if scorecard_file and lineup_files:
     for a in lineup_sets:
         for b in lineup_sets:
             overlap.loc[a, b] = len(lineup_sets[a] & lineup_sets[b])
+
+    st.subheader("Lineup Overlap Matrix")
+    st.dataframe(overlap)
 
     # Salary tier breakdown
     tier_map = scorecard.set_index('Name')['Tier'].to_dict()
@@ -65,13 +90,6 @@ if scorecard_file and lineup_files:
     tier_df = pd.DataFrame(tier_records)
     comp_dist = tier_df.apply(pd.Series.value_counts).fillna(0).sort_index()
     avg_tiers = tier_df.mean().to_frame(name='Avg Count')
-
-    # Display results
-    st.subheader("Player Exposure")
-    st.dataframe(exposures_df)
-
-    st.subheader("Lineup Overlap Matrix")
-    st.dataframe(overlap)
 
     st.subheader("Salary Tier Composition Distribution")
     st.dataframe(comp_dist)
@@ -95,10 +113,10 @@ if scorecard_file and lineup_files:
     plt.colorbar(im, ax=ax)
     st.pyplot(fig)
 
-    # Downloadable report
+    # Prepare download report
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-        exposures_df.to_excel(writer, sheet_name='Exposures')
+        display_exposure.to_excel(writer, sheet_name='Exposure_vs_Targets')
         overlap.to_excel(writer, sheet_name='Overlap')
         comp_dist.to_excel(writer, sheet_name='TierDist')
         avg_tiers.to_excel(writer, sheet_name='AvgTiers')
