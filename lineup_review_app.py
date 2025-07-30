@@ -18,11 +18,18 @@ if scorecard_file and lineup_files:
     scorecard = pd.read_csv(scorecard_file)
     scorecard.columns = scorecard.columns.str.strip()
 
-    # Load lineup builds (skipping header row)
+    # Define equal-width salary buckets (4 tiers)
+    min_sal = scorecard['Salary'].min()
+    max_sal = scorecard['Salary'].max()
+    bins = np.linspace(min_sal, max_sal, 5)  # 4 equal intervals
+    labels = ['Q1 (Low)', 'Q2', 'Q3', 'Q4 (High)']
+    scorecard['Tier'] = pd.cut(scorecard['Salary'], bins=bins, labels=labels, include_lowest=True)
+
+    # Load lineup builds
     builds = {}
     all_lineups = []
     for uploaded in lineup_files:
-        df = pd.read_csv(uploaded)  # default header=0
+        df = pd.read_csv(uploaded)
         builds[uploaded.name] = df
         for row in df.itertuples(index=False, name=None):
             all_lineups.append(tuple(row))
@@ -36,21 +43,17 @@ if scorecard_file and lineup_files:
     exposures_df = exposures.to_frame(name='Average Exposure')
 
     # Overlap matrix
-    lineup_sets = {
-        name: {tuple(sorted(lineup)) for lineup in builds[name].itertuples(index=False, name=None)}
-        for name in builds
-    }
+    lineup_sets = {name: {tuple(sorted(lineup)) for lineup in builds[name].itertuples(index=False, name=None)} for name in builds}
     overlap = pd.DataFrame(index=builds.keys(), columns=builds.keys(), dtype=int)
     for a in lineup_sets:
         for b in lineup_sets:
             overlap.loc[a, b] = len(lineup_sets[a] & lineup_sets[b])
 
     # Salary tier breakdown
-    scorecard['Tier'] = pd.qcut(scorecard['Salary'], 4, labels=['Q1','Q2','Q3','Q4'])
     tier_map = scorecard.set_index('Name')['Tier'].to_dict()
     tier_records = []
     for lineup in all_lineups:
-        counts = {'Q1':0,'Q2':0,'Q3':0,'Q4':0}
+        counts = {tier: 0 for tier in labels}
         for player in lineup:
             tier = tier_map.get(player)
             if tier:
@@ -60,7 +63,7 @@ if scorecard_file and lineup_files:
     comp_dist = tier_df.apply(pd.Series.value_counts).fillna(0).sort_index()
     avg_tiers = tier_df.mean().to_frame(name='Avg Count')
 
-    # Display results
+    # Display
     st.subheader("Player Exposure")
     st.dataframe(exposures_df)
 
@@ -73,12 +76,12 @@ if scorecard_file and lineup_files:
     st.subheader("Average Players per Tier")
     st.dataframe(avg_tiers)
 
-    # Co-occurrence heatmap (top 10 by exposure)
+    # Co-occurrence heatmap (top 10)
     top10 = exposures.nlargest(10).index.tolist()
     co_mat = pd.DataFrame(index=top10, columns=top10, dtype=int)
     for p1 in top10:
         for p2 in top10:
-            co_mat.loc[p1, p2] = sum(1 for lineup in all_lineups if p1 in lineup and p2 in lineup)
+            co_mat.loc[p1, p2] = sum(1 for ln in all_lineups if p1 in ln and p2 in ln)
     st.subheader("Co-occurrence Heatmap (Top 10)")
     fig, ax = plt.subplots(figsize=(8, 6))
     im = ax.imshow(co_mat.values)
@@ -89,7 +92,7 @@ if scorecard_file and lineup_files:
     plt.colorbar(im, ax=ax)
     st.pyplot(fig)
 
-    # Prepare report for download
+    # Downloadable report
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
         exposures_df.to_excel(writer, sheet_name='Exposures')
@@ -98,6 +101,6 @@ if scorecard_file and lineup_files:
         avg_tiers.to_excel(writer, sheet_name='AvgTiers')
         co_mat.to_excel(writer, sheet_name='Cooccurrence')
     buffer.seek(0)
-    filename = f"lineup_review_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-    st.download_button("Download Review Report", buffer, file_name=filename,
+    fname = f"lineup_review_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    st.download_button("Download Review Report", buffer, file_name=fname,
                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
