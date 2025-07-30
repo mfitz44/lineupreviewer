@@ -16,9 +16,7 @@ lineup_files = st.sidebar.file_uploader("Upload Lineup Build CSVs", type="csv", 
 if scorecard_file and lineup_files:
     # Load scorecard
     scorecard = pd.read_csv(scorecard_file)
-    scorecard = scorecard.rename(columns={
-        col: col.strip() for col in scorecard.columns
-    })
+    scorecard = scorecard.rename(columns={col: col.strip() for col in scorecard.columns})
 
     # Load lineups
     builds = {}
@@ -26,7 +24,7 @@ if scorecard_file and lineup_files:
     for uploaded in lineup_files:
         df = pd.read_csv(uploaded, header=None)
         builds[uploaded.name] = df
-n        all_lineups.extend([tuple(r) for r in df.values])
+        all_lineups.extend([tuple(r) for r in df.values])
 
     total_lineups = len(all_lineups)
 
@@ -41,17 +39,18 @@ n        all_lineups.extend([tuple(r) for r in df.values])
     overlap = pd.DataFrame(index=builds.keys(), columns=builds.keys(), dtype=int)
     for a in lineup_sets:
         for b in lineup_sets:
-            overlap.loc[a,b] = len(lineup_sets[a] & lineup_sets[b])
+            overlap.loc[a, b] = len(lineup_sets[a] & lineup_sets[b])
 
     # Tier breakdown
-    scorecard['Tier'] = pd.qcut(scorecard['Salary'], 4, labels=['Q1','Q2','Q3','Q4'])
+    scorecard['Tier'] = pd.qcut(scorecard['Salary'], 4, labels=['Q1', 'Q2', 'Q3', 'Q4'])
     tier_map = scorecard.set_index('Name')['Tier'].to_dict()
     tier_counts = []
     for lineup in all_lineups:
-        cnt = {'Q1':0,'Q2':0,'Q3':0,'Q4':0}
+        cnt = {'Q1': 0, 'Q2': 0, 'Q3': 0, 'Q4': 0}
         for p in lineup:
             tier = tier_map.get(p)
-            if tier: cnt[tier] += 1
+            if tier:
+                cnt[tier] += 1
         tier_counts.append(cnt)
     tier_df = pd.DataFrame(tier_counts)
     comp_dist = tier_df.apply(pd.Series.value_counts).fillna(0).sort_index()
@@ -75,13 +74,15 @@ n        all_lineups.extend([tuple(r) for r in df.values])
     co_mat = pd.DataFrame(index=top10, columns=top10, dtype=int)
     for p1 in top10:
         for p2 in top10:
-            co_mat.loc[p1,p2] = sum(1 for ln in all_lineups if p1 in ln and p2 in ln)
+            co_mat.loc[p1, p2] = sum(1 for ln in all_lineups if p1 in ln and p2 in ln)
     st.subheader("Co-occurrence Heatmap (Top 10)")
-    fig, ax = plt.subplots(figsize=(8,6))
+    fig, ax = plt.subplots(figsize=(8, 6))
     im = ax.imshow(co_mat.values)
-    ax.set_xticks(range(len(top10))); ax.set_yticks(range(len(top10)))
+    ax.set_xticks(range(len(top10)))
     ax.set_xticklabels(top10, rotation=90)
+    ax.set_yticks(range(len(top10)))
     ax.set_yticklabels(top10)
+    plt.colorbar(im, ax=ax)
     st.pyplot(fig)
 
     # Prepare report for download
@@ -95,4 +96,4 @@ n        all_lineups.extend([tuple(r) for r in df.values])
     buffer.seek(0)
     fname = f"lineup_review_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     st.download_button("Download Review Report", buffer, file_name=fname,
-                        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                       mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
