@@ -18,12 +18,12 @@ if scorecard_file and lineup_files:
     scorecard = pd.read_csv(scorecard_file)
     scorecard.columns = scorecard.columns.str.strip()
 
-    # Define equal-width salary buckets (4 tiers)
+    # Define equal-width salary buckets with dynamic labels
     min_sal = scorecard['Salary'].min()
     max_sal = scorecard['Salary'].max()
     bins = np.linspace(min_sal, max_sal, 5)  # 4 equal intervals
-    labels = ['Q1 (Low)', 'Q2', 'Q3', 'Q4 (High)']
-    scorecard['Tier'] = pd.cut(scorecard['Salary'], bins=bins, labels=labels, include_lowest=True)
+    range_labels = [f"${int(bins[i])}-${int(bins[i+1])}" for i in range(len(bins)-1)]
+    scorecard['Tier'] = pd.cut(scorecard['Salary'], bins=bins, labels=range_labels, include_lowest=True)
 
     # Load lineup builds
     builds = {}
@@ -37,13 +37,16 @@ if scorecard_file and lineup_files:
     total_lineups = len(all_lineups)
 
     # Exposure calculation
-    flat_players = [player for lineup in all_lineups for player in lineup]
+    flat_players = [p for lineup in all_lineups for p in lineup]
     exp_counts = pd.Series(flat_players).value_counts()
     exposures = exp_counts / total_lineups
     exposures_df = exposures.to_frame(name='Average Exposure')
 
     # Overlap matrix
-    lineup_sets = {name: {tuple(sorted(lineup)) for lineup in builds[name].itertuples(index=False, name=None)} for name in builds}
+    lineup_sets = {
+        name: {tuple(sorted(l)) for l in df.itertuples(index=False, name=None)}
+        for name, df in builds.items()
+    }
     overlap = pd.DataFrame(index=builds.keys(), columns=builds.keys(), dtype=int)
     for a in lineup_sets:
         for b in lineup_sets:
@@ -53,17 +56,17 @@ if scorecard_file and lineup_files:
     tier_map = scorecard.set_index('Name')['Tier'].to_dict()
     tier_records = []
     for lineup in all_lineups:
-        counts = {tier: 0 for tier in labels}
+        cnt = {label: 0 for label in range_labels}
         for player in lineup:
             tier = tier_map.get(player)
             if tier:
-                counts[tier] += 1
-        tier_records.append(counts)
+                cnt[tier] += 1
+        tier_records.append(cnt)
     tier_df = pd.DataFrame(tier_records)
     comp_dist = tier_df.apply(pd.Series.value_counts).fillna(0).sort_index()
     avg_tiers = tier_df.mean().to_frame(name='Avg Count')
 
-    # Display
+    # Display results
     st.subheader("Player Exposure")
     st.dataframe(exposures_df)
 
